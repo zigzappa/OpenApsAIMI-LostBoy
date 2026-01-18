@@ -1,17 +1,9 @@
 name: Android build and Google upload (Signed)
 
 on:
-  push:
-    branches:
-      - dev_OAPSAIMI
-    tags:
-      - 'v*.*.*'
-  pull_request:
-    branches:
-      - dev_OAPSAIMI
   workflow_dispatch:
     branches:
-      - aimi-test-translations-v2
+      - aimi-test-translations-v2 # edit this to reflect your branch
 
 jobs:
   build-signed:
