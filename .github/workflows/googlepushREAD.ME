@@ -1,50 +1,58 @@
---
+To help you finalize this project, I have organized everything we’ve done into a clean, step-by-step format. You can copy and paste this entire guide directly into a Google Doc for your records.
 
-# **Project Guide: Android Build & Google Drive Automation**
+---
 
-## **Phase 1: Google Cloud Setup (The "Credentials")**
+# **Project Guide: Android Build Automation & Google Drive Integration**
 
-Before GitHub can upload files, you must create a "Service Account" and enable the Drive API.
+This guide details the process of setting up a GitHub Actions workflow that builds signed Android APKs and automatically uploads them to a specific Google Drive folder, organized by commit hash.
 
-1. **Enable the API:** Go to the [Google Cloud Console](https://console.cloud.google.com/). Search for **"Google Drive API"** and click **Enable**.
+---
+
+## **Phase 1: Google Cloud & API Setup**
+
+GitHub acts as a "Service Account" (a robot user) to interact with your Drive.
+
+1. **Enable the Drive API:** Go to the [Google Cloud Console](https://console.cloud.google.com/). Search for **"Google Drive API"** and click **Enable**.
 2. **Create Service Account:** Navigate to **APIs & Services > Credentials**. Click **+ Create Credentials** > **Service Account**. Name it `github-uploader`.
 3. **Generate JSON Key:** Click on your new Service Account email. Go to the **Keys** tab > **Add Key** > **Create new key** > **JSON**.
-4. **Save the Data:** Open the downloaded `.json` file. Copy the **entire contents** for use in Phase 3.
+4. **Download & Encode:**
+* A `.json` file will download to your computer.
+* The GitHub Action requires this file to be **Base64 encoded**.
+* **PowerShell Command (Windows):** Run this command to copy the encoded string to your clipboard:
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\Users\Jason\downloads\gen-lang-client-0019016336-b6ce4e90f803.json")) | clip`
+
+
 
 ---
 
-## **Phase 2: Google Drive Permissions (The "Access")**
+## **Phase 2: Google Drive Permissions**
 
-Your Google Drive folder is private. You must explicitly invite the Service Account.
+The Service Account must be invited to your destination folders.
 
-1. **Get the Email:** Look inside your JSON key for the `client_email` (e.g., `github-uploader@project.iam.gserviceaccount.com`).
-2. **Share Folders:** Go to your Google Drive. Right-click your destination folder (**MTR** or **Lostboy**) and click **Share**.
+1. **Get the Email:** Open your JSON key file and copy the `client_email` address.
+2. **Share Folders:** Go to your Google Drive. Right-click your folders (**MTR** and **Lostboy**) and click **Share**.
 3. **Invite as Editor:** Paste the Service Account email, set the role to **Editor**, and click **Send**.
-4. **Copy Folder IDs:** Copy the long ID from the end of the folder's URL (after `/folders/`).
+4. **Copy Folder IDs:** Copy the unique ID from the end of the folder's URL (the characters after `/folders/`).
 
 ---
 
-## **Phase 3: GitHub Configuration (The "Secrets")**
+## **Phase 3: GitHub Secrets Configuration**
 
-Store your sensitive keys in GitHub so they are encrypted.
+Store your sensitive keys in GitHub (**Settings > Secrets and variables > Actions**).
 
-**Go to:** Repository Settings > Secrets and variables > Actions > **New repository secret**.
-
-| Secret Name | Description |
+| Secret Name | Content |
 | --- | --- |
-| **`GDRIVE_SERVICE_ACCOUNT_JSON`** | Paste the entire raw text from your downloaded JSON key file. |
-| **`KEYSTORE_BASE64`** | Your `.jks` keystore file converted to a Base64 string. |
-| **`KEYSTORE_PASSWORD`** | The password for your keystore file. |
-| **`KEY_ALIAS`** | The alias name of your signing key. |
-| **`KEY_PASSWORD`** | The password for the specific signing key. |
+| **`GDRIVE_SERVICE_ACCOUNT_JSON`** | The **Base64 string** generated in Phase 1. |
+| **`KEYSTORE_BASE64`** | Your `.jks` keystore file converted to Base64. |
+| **`KEYSTORE_PASSWORD`** | Your keystore password. |
+| **`KEY_ALIAS`** | Your signing key alias. |
+| **`KEY_PASSWORD`** | Your signing key password. |
 
 ---
 
-## **Phase 4: The Automation Workflow (The "YAML")**
+## **Phase 4: The GitHub Actions YAML Workflow**
 
-Create a file in your repo at `.github/workflows/android_build.yml` and paste the code below.
-
-> **Note:** Move the `#` symbol in the `env` block to toggle between **MTR** and **Lostboy** folders.
+Create `.github/workflows/android_build.yml` in your repo. This version includes a **Staging Step** to ensure the Google Drive uploader finds your APKs successfully.
 
 ```yaml
 name: Android build and Google upload (Signed)
@@ -52,12 +60,14 @@ name: Android build and Google upload (Signed)
 on:
   push:
     branches:
-      - dev_OAPSAIMI # !!! CUSTOMIZE: Change to your branch name !!!
+      - dev_OAPSAIMI
+      - aimi-test-translations-v2
     tags:
       - 'v*.*.*'
   pull_request:
     branches:
-      - dev_OAPSAIMI # !!! CUSTOMIZE: Change to your branch name !!!
+      - dev_OAPSAIMI
+      - aimi-test-translations-v2
   workflow_dispatch:
 
 jobs:
@@ -135,11 +145,9 @@ jobs:
 
 ---
 
-### **Pre-Flight Checklist**
+## **Troubleshooting Checklist**
 
-* [ ] **API:** Is the Google Drive API "Enabled"?
-* [ ] **Permissions:** Is the folder shared with the Service Account email as an **Editor**?
-* [ ] **Secrets:** Is `GDRIVE_SERVICE_ACCOUNT_JSON` named exactly like that in GitHub?
-* [ ] **Branch:** Did you update the `branches:` section to match your repo branch?
-
-Would you like me to create a **one-page summary** of just the troubleshooting tips for the most common errors?
+* **Missing Credentials Error:** Ensure the secret name in GitHub matches the YAML exactly.
+* **Base64 Error:** Ensure `GDRIVE_SERVICE_ACCOUNT_JSON` is the encoded string, not the raw JSON text.
+* **No File Found:** Check the "Stage APKs" step logs to ensure APKs are being copied into the `upload_me` folder.
+* **Branch Trigger:** Ensure your current working branch is listed in the `on: push: branches:` section.
