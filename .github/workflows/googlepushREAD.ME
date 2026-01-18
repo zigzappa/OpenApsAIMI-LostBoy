@@ -1,0 +1,145 @@
+--
+
+# **Project Guide: Android Build & Google Drive Automation**
+
+## **Phase 1: Google Cloud Setup (The "Credentials")**
+
+Before GitHub can upload files, you must create a "Service Account" and enable the Drive API.
+
+1. **Enable the API:** Go to the [Google Cloud Console](https://console.cloud.google.com/). Search for **"Google Drive API"** and click **Enable**.
+2. **Create Service Account:** Navigate to **APIs & Services > Credentials**. Click **+ Create Credentials** > **Service Account**. Name it `github-uploader`.
+3. **Generate JSON Key:** Click on your new Service Account email. Go to the **Keys** tab > **Add Key** > **Create new key** > **JSON**.
+4. **Save the Data:** Open the downloaded `.json` file. Copy the **entire contents** for use in Phase 3.
+
+---
+
+## **Phase 2: Google Drive Permissions (The "Access")**
+
+Your Google Drive folder is private. You must explicitly invite the Service Account.
+
+1. **Get the Email:** Look inside your JSON key for the `client_email` (e.g., `github-uploader@project.iam.gserviceaccount.com`).
+2. **Share Folders:** Go to your Google Drive. Right-click your destination folder (**MTR** or **Lostboy**) and click **Share**.
+3. **Invite as Editor:** Paste the Service Account email, set the role to **Editor**, and click **Send**.
+4. **Copy Folder IDs:** Copy the long ID from the end of the folder's URL (after `/folders/`).
+
+---
+
+## **Phase 3: GitHub Configuration (The "Secrets")**
+
+Store your sensitive keys in GitHub so they are encrypted.
+
+**Go to:** Repository Settings > Secrets and variables > Actions > **New repository secret**.
+
+| Secret Name | Description |
+| --- | --- |
+| **`GDRIVE_SERVICE_ACCOUNT_JSON`** | Paste the entire raw text from your downloaded JSON key file. |
+| **`KEYSTORE_BASE64`** | Your `.jks` keystore file converted to a Base64 string. |
+| **`KEYSTORE_PASSWORD`** | The password for your keystore file. |
+| **`KEY_ALIAS`** | The alias name of your signing key. |
+| **`KEY_PASSWORD`** | The password for the specific signing key. |
+
+---
+
+## **Phase 4: The Automation Workflow (The "YAML")**
+
+Create a file in your repo at `.github/workflows/android_build.yml` and paste the code below.
+
+> **Note:** Move the `#` symbol in the `env` block to toggle between **MTR** and **Lostboy** folders.
+
+```yaml
+name: Android build and Google upload (Signed)
+
+on:
+  push:
+    branches:
+      - dev_OAPSAIMI # !!! CUSTOMIZE: Change to your branch name !!!
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - dev_OAPSAIMI # !!! CUSTOMIZE: Change to your branch name !!!
+  workflow_dispatch:
+
+jobs:
+  build-signed:
+    runs-on: ubuntu-22.04
+
+    env:
+      # --- FOLDER SELECTION ---
+      # Toggle these by moving the '#' comment symbol
+      PARENT_FOLDER_ID: '1noIAAjSxhjb8-qOI4r7ttrMKyjeS5dky' # MTR Folder
+      # PARENT_FOLDER_ID: '1YwSMARXgKDhiGw8fnUD5HOvVXwymYgWI' # Lostboy Folder
+      # ------------------------
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v3
+
+      - name: Set Short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Decode keystore
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > monkeystore.jks
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APKs
+        run: ./gradlew :app:assembleFullRelease :wear:assembleFullRelease :app:assembleAapsClientRelease
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/monkeystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # --- STAGING STEP ---
+      # Gathers APKs into a root folder to avoid Docker pathing errors.
+      - name: Stage APKs for Upload
+        run: |
+          mkdir -p upload_me
+          find . -name "*.apk" -not -path "./upload_me/*" -exec cp {} upload_me/ \;
+          echo "Files in staging folder:"
+          ls upload_me
+
+      - name: Upload APKs to Google Drive
+        uses: adityak74/google-drive-upload-git-action@main
+        with:
+          credentials: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          filename: "upload_me/*.apk"
+          folderId: ${{ env.PARENT_FOLDER_ID }}
+          name: "Build-${{ steps.vars.outputs.sha_short }}" 
+          overwrite: "false"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref }}
+          files: "upload_me/*.apk"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+```
+
+---
+
+### **Pre-Flight Checklist**
+
+* [ ] **API:** Is the Google Drive API "Enabled"?
+* [ ] **Permissions:** Is the folder shared with the Service Account email as an **Editor**?
+* [ ] **Secrets:** Is `GDRIVE_SERVICE_ACCOUNT_JSON` named exactly like that in GitHub?
+* [ ] **Branch:** Did you update the `branches:` section to match your repo branch?
+
+Would you like me to create a **one-page summary** of just the troubleshooting tips for the most common errors?
