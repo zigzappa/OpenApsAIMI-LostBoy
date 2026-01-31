@@ -45,7 +45,8 @@ class AIMIPhysioContextEngineMTR @Inject constructor(
         
         // Confidence scoring
         private const val MIN_DATA_QUALITY_FOR_CONFIDENCE = 0.4
-        private const val MIN_BASELINE_VALIDITY_DAYS = 3
+        // 🚀 CHANGED: Activate immediately to show data (Absolute thresholds apply even without baseline)
+        private const val MIN_BASELINE_VALIDITY_DAYS = 0
     }
     
     /**
@@ -66,9 +67,17 @@ class AIMIPhysioContextEngineMTR @Inject constructor(
             return PhysioContextMTR.NEUTRAL
         }
         
+        if (baseline.validDaysCount < 1) {
+            aapsLogger.debug(LTag.APS, "[$TAG] Baseline empty (Day 0) - returning LEARNING context")
+            return PhysioContextMTR.NEUTRAL.copy(
+                features = features,
+                narrative = "Building Initial Baseline (Day 0/1)"
+            )
+        }
+        
+        // 🚀 PROGRESSIVE CONFIDENCE: Proceed even with partial baseline (Day 1+)
         if (!baseline.isValid()) {
-            aapsLogger.debug(LTag.APS, "[$TAG] Baseline not valid yet - returning NEUTRAL context")
-            return PhysioContextMTR.NEUTRAL
+             aapsLogger.info(LTag.APS, "[$TAG] Using partial baseline (Day ${baseline.validDaysCount}/$MIN_BASELINE_VALIDITY_DAYS)")
         }
         
         // Calculate deviations
