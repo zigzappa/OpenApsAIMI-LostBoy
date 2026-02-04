@@ -5758,6 +5758,45 @@ class DetermineBasalaimiSMB2 @Inject constructor(
         )
         val pkpdDiaMinutesOverride: Double? = pkpdRuntime?.params?.diaHrs?.let { it * 60.0 } // PKPD donne des heures → on passe en minutes
         val useLegacyDynamicsdia = pkpdDiaMinutesOverride == null
+        // ═══════════════════════════════════════════════════════════════════════════
+        // 🛡️ BASAL-FIRST POLICY GATE (Single Source of Truth)
+        // ═══════════════════════════════════════════════════════════════════════════
+        val learnerFactor = safeReactivityFactor // Already computed: unifiedReactivityLearner + Physio
+        val isFragileBg = bg < 110.0 && delta < 0.0
+        val isLearnerPrudent = learnerFactor < 0.75
+        val basalFirstMealActive = mealData.mealCOB > 0.1 // 🍕 Digestion active?
+        val basalFirstHeavyMeal = mealData.mealCOB > 20.0 // 🍔 Heavy Meal?
+
+        // Gate: Activate Basal-First if:
+        // A) Learner is Prudent AND NO Meal is active
+        // OR
+        // B) BG is Fragile AND NO Heavy Meal is active (User rule: COB > 20 -> Priority to Insulin)
+        // EXCEPTION: Explicit Meal Advisor / OneShot overrides
+        val basalFirstActive = ((isLearnerPrudent && !basalFirstMealActive) || (isFragileBg && !basalFirstHeavyMeal)) && !isMealAdvisorOneShot
+        
+        if (basalFirstActive) {
+            // FORCE limits to 0.0 -> Disables SMB effectively
+            this.maxSMB = 0.0
+            this.maxSMBHB = 0.0
+            
+            // Log for transparency
+            val reason = when {
+                isFragileBg -> "Fragile BG (<110 & falling)"
+                isLearnerPrudent -> "Learner Prudence (Factor=${"%.2f".format(learnerFactor)})"
+                else -> "Unknown Safety Trigger"
+            }
+            consoleLog.add("🛡️ BASAL-FIRST ACTIVE: $reason -> SMB DISABLED (MaxSMB=0)")
+            rT.reason.append(" [Basal-First: SMB OFF]")
+        } else {
+             if (isLearnerPrudent && basalFirstMealActive) {
+                 consoleLog.add("🍕 MEAL EXEMPTION: Learner is Prudent but Meal Active (COB=${"%.1f".format(mealData.mealCOB)}g) -> SMB Allowed.")
+             }
+             if (isFragileBg && basalFirstHeavyMeal) {
+                 consoleLog.add("🍔 HEAVY MEAL EXEMPTION: Fragile BG but COB > 20g (COB=${"%.1f".format(mealData.mealCOB)}g) -> SMB Allowed.")
+             }
+        }
+        // ═══════════════════════════════════════════════════════════════════════════
+
         val smbExecution = SmbInstructionExecutor.execute(
             SmbInstructionExecutor.Input(
                 context = context,
